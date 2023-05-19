@@ -22,8 +22,8 @@ namespace WasapiLoopback
             InitializeComponent();
             for (int i = 0; i < 6; i++)
             {
-                if (File.Exists($"{i}_source.wav"))
-                    File.Delete($"{i}_source.wav");
+                if (File.Exists($"{i}_{strSource}"))
+                    File.Delete($"{i}_{strSource}");
             }
             PerformRecordStart();
         }
@@ -45,22 +45,23 @@ namespace WasapiLoopback
             PerformRecordStart();
         }
 
-        private IWaveIn newWaveIn;
+        private IWaveIn CaptureDevice;
         private IWaveIn CreateWaveInDevice(DataFlow flow, MMDevice mmDevice)
         {
             Console.WriteLine($"-------------------{Thread.CurrentThread.ManagedThreadId}");
-            if(flow == DataFlow.Capture)
-                newWaveIn = new WasapiCapture(mmDevice);
+            if (flow == DataFlow.Capture)
+            {
+                CaptureDevice = new WasapiCapture(mmDevice) { };
+            }
+
             if (flow == DataFlow.Render)
-                newWaveIn = new WasapiLoopbackCapture(mmDevice);
-            var rr = newWaveIn.WaveFormat.Channels;
-
-            sourceWaveFormat = newWaveIn.WaveFormat;
+                CaptureDevice = new WasapiLoopbackCapture(mmDevice);
 
 
-            newWaveIn.DataAvailable += OnDataAvailable;
-            newWaveIn.RecordingStopped += OnRecordingStopped;
-            return newWaveIn;
+
+            CaptureDevice.DataAvailable += OnDataAvailable;
+            CaptureDevice.RecordingStopped += OnRecordingStopped;
+            return CaptureDevice;
         }
 
         private void OnRecordingStopped(object sender, StoppedEventArgs e)
@@ -140,24 +141,24 @@ namespace WasapiLoopback
             return ExtractedChannels;
         }
 
-        WaveFormat sourceWaveFormat = null;
         private void OnDataAvailable(object sender, WaveInEventArgs e)
         {
 #if true
-            WaveFormat destinationWaveFormat = new WaveFormat(16000, 16, 1);
+            
             var sourceAudioData = ConvertFloatSamplesIntoShortSamples(e.Buffer, e.BytesRecorded);
-            byte[] resampledRawData = ResampleRawPcmData(sourceAudioData, new WaveFormat(sourceWaveFormat.SampleRate, sizeof(short)*8, 1), destinationWaveFormat);
+            byte[][] res = ExtractIndividualChannels(sourceAudioData, CaptureDevice.WaveFormat.Channels, sizeof(short));
 
-            var channelCount = newWaveIn.WaveFormat.Channels;
-            byte[][] res = ExtractIndividualChannels(resampledRawData, channelCount, sizeof(short));
-
-            for (int i = 0;i < channelCount;i++)
+            for (int i = 0; i < CaptureDevice.WaveFormat.Channels; i++)
             {
+                WaveFormat destinationWaveFormat = new WaveFormat(16000, 16, 1);
+                byte[] resampledRawData = ResampleRawPcmData(res[i], new WaveFormat(CaptureDevice.WaveFormat.SampleRate, sizeof(short) * 8, 1), destinationWaveFormat);
+
+
                 // Use the converted audio data as needed
                 using (var fileStream = new FileStream($"{i}_{strSource}", FileMode.Append, FileAccess.Write, FileShare.None))
                 using (var bw = new BinaryWriter(fileStream))
                 {
-                    bw.Write(res[i], 0, res[i].Length);
+                    bw.Write(resampledRawData, 0, resampledRawData.Length);
                 }
             }
 #endif
