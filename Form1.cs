@@ -33,10 +33,10 @@ namespace WasapiLoopback
         {
             var deviceEnum = new MMDeviceEnumerator();
             
-            var dataDlow = DataFlow.Capture;
-            var devices = deviceEnum.EnumerateAudioEndPoints(dataDlow, DeviceState.Active).ToList();
-            devices.ForEach(d => Console.WriteLine(d.FriendlyName, d.AudioClient));
-            _Device = CreateWaveInDevice(dataDlow, devices[1]);
+            var captureDevices = deviceEnum.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
+            var renderDevices = deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+            //devices.ForEach(d => Console.WriteLine(d.FriendlyName, d.AudioClient));
+            _Device = CreateWaveInDevice(DataFlow.Capture, captureDevices[1]);
             _Device.StartRecording();
         }
 
@@ -45,9 +45,9 @@ namespace WasapiLoopback
             PerformRecordStart();
         }
 
-        private IWaveIn CaptureDevice;
         private IWaveIn CreateWaveInDevice(DataFlow flow, MMDevice mmDevice)
         {
+            IWaveIn CaptureDevice = null;
             Console.WriteLine($"-------------------{Thread.CurrentThread.ManagedThreadId}");
             if (flow == DataFlow.Capture)
             {
@@ -55,12 +55,19 @@ namespace WasapiLoopback
             }
 
             if (flow == DataFlow.Render)
+            {
+                var a = mmDevice.AudioEndpointVolume.MasterVolumeLevel;
+                mmDevice.AudioEndpointVolume.MasterVolumeLevel = -5;
+                var b = mmDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
+                //mmDevice.AudioEndpointVolume.MasterVolumeLevelScalar = 1.0f;
                 CaptureDevice = new WasapiLoopbackCapture(mmDevice);
+            }
 
 
 
             CaptureDevice.DataAvailable += OnDataAvailable;
             CaptureDevice.RecordingStopped += OnRecordingStopped;
+            Console.WriteLine($"-------------------Device Created: {CaptureDevice.WaveFormat.Channels}");
             return CaptureDevice;
         }
 
@@ -146,19 +153,19 @@ namespace WasapiLoopback
 #if true
             
             var sourceAudioData = ConvertFloatSamplesIntoShortSamples(e.Buffer, e.BytesRecorded);
-            byte[][] res = ExtractIndividualChannels(sourceAudioData, CaptureDevice.WaveFormat.Channels, sizeof(short));
+            byte[][] res = ExtractIndividualChannels(sourceAudioData, _Device.WaveFormat.Channels, sizeof(short));
 
-            for (int i = 0; i < CaptureDevice.WaveFormat.Channels; i++)
+            for (int i = 0; i < _Device.WaveFormat.Channels; i++)
             {
                 WaveFormat destinationWaveFormat = new WaveFormat(16000, 16, 1);
-                byte[] resampledRawData = ResampleRawPcmData(res[i], new WaveFormat(CaptureDevice.WaveFormat.SampleRate, sizeof(short) * 8, 1), destinationWaveFormat);
+                byte[] resampledRawData = ResampleRawPcmData(res[i], new WaveFormat(_Device.WaveFormat.SampleRate, sizeof(short) * 8, 1), destinationWaveFormat);
 
 
                 // Use the converted audio data as needed
                 using (var fileStream = new FileStream($"{i}_{strSource}", FileMode.Append, FileAccess.Write, FileShare.None))
                 using (var bw = new BinaryWriter(fileStream))
                 {
-                    bw.Write(resampledRawData, 0, resampledRawData.Length);
+                    bw.Write(res[i], 0, res[i].Length);
                 }
             }
 #endif
